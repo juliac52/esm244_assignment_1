@@ -1,0 +1,202 @@
+---
+title: "Assignment 1 Task 2 - ESM 244"
+author: "Julia Cox"
+format: 
+  html:
+    code-fold: show
+    toc: true
+    number-sections: true
+    embed-resources: true
+editor: visual
+execute: 
+  echo: true
+  message: false
+  warning: false
+---
+
+# Salmon counts in the Willamette River
+
+![Photo credit: Tom and Pat Leeson](Breaching-coho-Leeson-1500x720.jpg)
+
+-   Anadromous salmon, like the migrating Coho pictured above, are born in fresh water and travel to the ocean where they feed and mature for several years. When they are ready to reproduce reproduce, the salmon return to the fresh water ecosystems where they originated to spawn and die, hopefully in that order.
+
+-   The Columbia River Data Access in Real Time (DART) database is managed by the School of Aquatic and Fishery Sciences at the University of Washington and has provided fish passage data for over 30 years. The data utilized in this summary include fish counts, species, and date of fish passage in the Willamette River in Oregon. These visualizations focus on three species of salmon: the Coho, Jack Coho, and Steelhead. The figures in this report summarize the counts of these three species between 2001 and 2010 and demonstrate potential seasonal patterns and inter-annual trends.
+
+### Data:
+
+Columbia River DART, Columbia Basin Research, University of Washington. (2024). Adult Passage Counts Graphics & Text. Available from https://www.cbr.washington.edu/dart/query/adult_graph_text
+
+Generated: 01 Feb 2024 11:32:52 PST. Columbia River DART (Data Access in Real Time) [www.cbr.washington.edu/dart](https://www.cbr.washington.edu/dart).
+
+```{r setup}
+library(tidyverse)
+library(here)
+library(broom)
+library(ggplot2)
+library(readxl)
+library(lubridate)
+library(ggtext)
+library(patchwork)
+library(tsibble)
+library(feasts)
+library(fable)
+library(janitor)
+library(patchwork)
+```
+
+# Read in the data
+
+```{r}
+fish <- read_csv(here("data","willamette_fish_passage.csv"))
+```
+
+# Part 1: Original time series
+
+## Make a plot of Coho, Jack Coho, and Steelhead salmon passage
+
+### Clean and organize data
+
+```{r}
+#first, we need to select the data for the fish we're interested in and turn all of the "NA"s into 0s 
+salmon <- fish %>%
+  select(c("Date","Coho","Jack Coho","Steelhead")) %>%
+  replace(is.na(.), 0) %>%
+  clean_names()
+```
+
+### Convert the data into a time series
+
+```{r}
+#use as_tsibble to make the data time series 
+salmon_ts <- salmon %>% 
+  mutate(date = lubridate::mdy(date)) %>% #now it knows this column is dates 
+  as_tsibble(key = NULL, index = date) %>% #this is our times series variable
+#now it knows that the date column is time series, special column 
+  pivot_longer(!date, names_to = "taxa", values_to = "count") #change to long format
+```
+
+### Make the time series plot
+
+```{r}
+ggplot(salmon_ts, aes(x = date, y = count, color = taxa)) + 
+  geom_line(alpha = 7/10) +
+  scale_color_manual(values = c("brown1","black","cadetblue4"),
+                    name = "Taxa",
+                    labels = c("Coho", "Jack Coho", "Steelhead")) +
+  labs(x = "Date", y = "Counts") +
+  theme_minimal() + 
+  plot_annotation(caption = "Time series of salmon passage counts in the Willamette River between the years 2001 and 2010")
+  
+```
+
+## Some notable patterns:
+
+-   It appears that Coho and Jack Coho salmon have similar migratory patterns whereas the Steelhead migrate at an entirely different time of year. Steelhead migration begins early in the year (spring) while Coho and Jack Coho begin migrating close to the end of the year (fall/winter).
+
+-   There appears to be an annual pattern for all three taxa, with each migration peaking once each year.
+
+-   While Coho and Jack Coho appear to have concentrated, rapid migrations (narrow peaks), the Steelhead seems to have a longer migratory season (wider peaks).
+
+# Part 2: Seasonplots
+
+## Make a seasonplot for each of the salmon species on its own panel
+
+### First, make each of the plots individually
+
+```{r}
+#season plot for Coho 
+coho_season_plot <- salmon_ts %>%
+  filter(taxa == "coho") %>%
+  gg_season(y = count, pal = hcl.colors(n = 9), show.legend = FALSE) +
+  theme_light() +
+  labs(x = " ", y = "Coho") +
+  ylim(0,1500)
+
+#season plot for jack
+jack_season_plot <- salmon_ts %>%
+  filter(taxa == "jack_coho") %>%
+  gg_season(y = count, pal = hcl.colors(n = 9)) +
+  theme_light() +
+  labs(x = " ", y = "Jack Coho") +
+  ylim(0,1500) +
+  theme(legend.key.size = unit(1, 'cm'),
+        legend.key.width= unit(1, 'cm'))
+
+#season plot for steelhead 
+steel_season_plot <- salmon_ts %>%
+  filter(taxa == "steelhead") %>%
+  gg_season(y = count, pal = hcl.colors(n = 9), show.legend = FALSE) +
+  theme_light() +
+  labs(x = "Month", y = "Steelhead") +
+  ylim(0,1500)
+
+#show plots 
+coho_season_plot
+jack_season_plot
+steel_season_plot
+
+```
+
+### Combine seasonplots using patchwork
+
+```{r}
+salmon_season <- coho_season_plot / jack_season_plot / steel_season_plot
+
+salmon_season + plot_annotation(
+  caption = "Seasonal salmon passage counts in the Willamette River between the years 2001 and 2010")
+```
+
+## Some notable patterns:
+
+-   As noted above, it looks like both the Coho and Jack Coho have peak migratory periods in the fall. Their runs both center around October each year.
+
+-   Interestingly, it appears that the Coho salmon has increased in numbers throughout the time series. Perhaps dam removal and river restoration have had a positive impact on the species?
+
+-   The Steelhead, as noted above, has a much more spread out migration period that ranges approximately from January through July.
+
+# Part 3: Annual counts by species
+
+## Make a plot showing annual totals for each of the three species
+
+### First, we need to aggregate the data by year and taxa, and then sum the counts for each group to get annual totals
+
+```{r}
+#add a new column only including "year"
+salmon_ts$year <- year(salmon_ts$date)
+
+#aggregate by year and taxa, and sum the counts for each group 
+year_sum <- salmon_ts %>%
+  aggregate(count ~ year + taxa, FUN = sum, na.rm = TRUE) %>%
+  mutate(year = as.factor(year))
+```
+
+### Now we can make the annual total counts plot
+
+```{r}
+#make the plot 
+ann_salmon <- ggplot(year_sum, aes(x = year, y = count, fill = taxa)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("brown1","black","cadetblue4"),
+                    name = "Taxa",
+                    labels = c("Coho", "Jack Coho", "Steelhead")) +
+  labs(x = "Year", y = "Annual Total Counts") +
+  theme_minimal()
+
+ann_salmon + plot_annotation(
+  caption = "Annual totals of salmon passage counts in the Willamette River between 2001 and 2010")
+
+```
+
+## Some notable patterns:
+
+-   Total annual Coho salmon counts have increased in later years, indicating that the migratory population of this species may have increased in the Willamette River. This is a small snapshot in time, however, and it's difficult to tell if there is actually a trend.
+
+-   There does not appear to be a trend for Steelhead and Jack Coho annual totals over time, although Steelhead numbers may be decreasing slightly.
+
+#### Citation:
+
+Columbia River DART, Columbia Basin Research, University of Washington. (2024). Adult Passage Counts Graphics & Text. Available from https://www.cbr.washington.edu/dart/query/adult_graph_text
+
+#### Generated:
+
+01 Feb 2024 11:32:52 PST. Columbia River DART (Data Access in Real Time) [www.cbr.washington.edu/dart](https://www.cbr.washington.edu/dart).

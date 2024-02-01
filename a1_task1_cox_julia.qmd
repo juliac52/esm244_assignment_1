@@ -1,0 +1,129 @@
+---
+title: "Assignment 1 Task 1 - ESM 244"
+author: "Julia Cox"
+format: 
+  html:
+    code-fold: show
+    toc: true
+    number-sections: true
+    embed-resources: true
+editor: visual
+execute: 
+  echo: true
+  message: false
+  warning: false
+---
+
+# Yellow-legged Frogs in the Sierra Lakes
+
+![Photo credit: Rick Kuyper/USFWS](Sierra-Nevada-Yellow-legged-frog-Rick-Kuyper-USFWS.jpeg)
+
+This summary looks at abundances and different life stages of the yellow-legged frog (*Rana muscosa*). Data was collected by the Sierra Lake Inventory Project (SLIP), through which over 8,000 fresh water bodies were surveyed for aquatic communities between 1995 and 2002. \### Data:
+
+Knapp, R.A., C. Pavelka, E.E. Hegeman, and T.C. Smith. 2020. The Sierra Lakes Inventory Project: Non-Native fish and community composition of lakes and ponds in the Sierra Nevada, California ver 2. Environmental Data Initiative. https://doi.org/10.6073/pasta/d835832d7fd00d9e4466e44eea87fab3
+
+```{r setup}
+library(tidyverse)
+library(here)
+library(broom)
+library(ggplot2)
+library(readxl)
+library(lubridate)
+library(ggtext)
+library(patchwork)
+```
+
+# Read in the data
+
+```{r}
+amphibians <- read_xlsx(here("data","sierra_amphibians.xlsx"))
+```
+
+# Graph 1
+
+## Make a plot showing yellow-legged frog counts each year by lifes tage (adult, sub-adult, and tadpole)
+
+```{r}
+#make a new column with only "year" using lubridate, turn "year" into a factor for plotting purposes 
+amphibians$year <- as.factor(year(amphibians$survey_date))
+
+#filter out rows we don't need 
+ramu_data <- amphibians %>%
+  filter(amphibian_species == "RAMU", amphibian_life_stage != "EggMass") %>%
+  na.omit() #omitted one missing value (NA)
+
+#bar plot
+ramu_plot <- ggplot(ramu_data, aes(x = year, y = amphibian_number, fill = amphibian_life_stage, color = amphibian_life_stage)) +
+  geom_col() +
+  scale_fill_manual(values = c("yellow2","darkolivegreen3","bisque4"),
+                    name = "Life Stage") +
+  scale_color_manual(values = c("yellow2","darkolivegreen3","bisque4"),
+                    name = "Life Stage") +
+  labs(x = "Year", y = "Counts", title = "Yellow-Legged Frogs (Rana muscosa) in the Sierra Lakes") +
+  theme_minimal()
+
+ramu_plot
+```
+
+# Graph 2
+
+## Make a plot of combined adult and subadult yellow-legged frog counts in the 5 lakes where they are most abundant
+
+```{r}
+#remove tadpoles and re-label lake ID
+ramu_adult_subad <- ramu_data %>%
+  filter(amphibian_life_stage != "Tadpole")
+     
+ramu_adult_subad$lake_id <- as.factor(ramu_adult_subad$lake_id)
+ramu_adult_subad$lake_id <- sub("^","Lake ", ramu_adult_subad$lake_id)
+
+#reorder lake IDs based on counts of frogs 
+ramu_summary <- ramu_adult_subad %>% 
+  group_by(lake_id) %>%
+  summarize(sum(amphibian_number)) %>%
+  arrange(desc(`sum(amphibian_number)`)) %>%
+    slice(1:5) 
+
+#make the plot
+lakes_plot <- ggplot(ramu_summary, aes(x = fct_reorder(lake_id, `sum(amphibian_number)`), y = `sum(amphibian_number)`)) +
+  geom_col(fill = "black") +
+  labs(x = "Lake ID", y = "Counts", title = "Five lakes with highest abundances of the Yellow-legged Frog 
+       (Adults and Sub-adults combined)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 40, vjust = 1, hjust=1))
+
+lakes_plot
+```
+
+# Combine figures into a single plot
+
+## Use patchwork to combine and finalize the above yellow-legged frog figures
+
+```{r}
+#plot edits to make them work well with patchwork 
+patch_1 <- ggplot(ramu_data, aes(x = year, y = amphibian_number, fill = amphibian_life_stage, color = amphibian_life_stage)) +
+  geom_col() +
+  scale_fill_manual(values = c("yellow2","darkolivegreen3","bisque4"),
+                    name = "Life Stage") +
+  scale_color_manual(values = c("yellow2","darkolivegreen3","bisque4"),
+                    name = "Life Stage") +
+  labs(x = "Year", y = "Counts") +
+  theme_minimal()
+
+patch_2 <- ggplot(ramu_summary, aes(x = fct_reorder(lake_id, `sum(amphibian_number)`), y = `sum(amphibian_number)`)) +
+  geom_col(fill = "black") +
+  labs(x = "Lake ID", y = "Counts") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 40, vjust = 1, hjust=1))
+
+
+frog_patch <- patch_2 + patch_1
+
+frog_patch + plot_annotation(
+  title = "Counts of the Yellow-footed Frog (Rana muscosa) in the Sierra Lakes",
+  caption = "Panel A: Five of the Sierra lakes with highest abundances of R. muscosa (adults and sub-adults combined). 
+Panel B: Total counts of R. muscosa across all surveyed lakes by life stage.",
+  tag_levels = "A")
+
+
+```
